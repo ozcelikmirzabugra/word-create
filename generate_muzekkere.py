@@ -79,6 +79,33 @@ def replace_preparation_date(text: str, new_date: str) -> str:
     return text.replace(slashed, new_date, 1)
 
 
+def tighten_header_date_position(xml: str) -> str:
+    marker = '<w:t xml:space="preserve">ANKARA, </w:t>'
+    marker_idx = xml.find(marker)
+    if marker_idx == -1:
+        raise ValueError("Şablonda 'ANKARA, ' başlık alanı bulunamadı.")
+
+    run_matches = list(re.finditer(r"<w:r(?:\s[^>]*)?>", xml[:marker_idx]))
+    if len(run_matches) < 2:
+        raise ValueError("Şablonda ANKARA satırı run bilgisi bulunamadı.")
+
+    ankara_run_start = run_matches[-1].start()
+    spacer_run_start = run_matches[-2].start()
+
+    spacer_run = xml[spacer_run_start:ankara_run_start]
+    if "<w:tab/>" not in spacer_run:
+        raise ValueError("Şablonda ANKARA satırı için beklenen tab boşluğu bulunamadı.")
+
+    # Sağ üst tarihin alt satıra kaymaması için başlıktaki tab aralığını bir adım daralt.
+    new_spacer_run = spacer_run.replace("<w:tab/>", "", 1)
+    return xml[:spacer_run_start] + new_spacer_run + xml[ankara_run_start:]
+
+
+def normalize_justified_paragraphs(xml: str) -> str:
+    # textutil -> doc dönüşümünde aşırı kelime aralıklarını azaltmak için justified satırları sola al.
+    return xml.replace('<w:jc w:val="both"/>', '<w:jc w:val="left"/>')
+
+
 def update_docx_document_xml(
     input_docx: Path,
     output_docx: Path,
@@ -103,8 +130,11 @@ def update_docx_document_xml(
                 xml = replace_exact_once(xml, "Doğukan yurt", ad_soyad, "Ad Soyad")
                 xml = replace_exact_once(xml, "16291090514", tc, "TC")
                 xml = replace_exact_once(xml, "2025/357", esas_value, "Mahkeme Esas Numarası")
+                xml = replace_exact_once(xml, "2025/258", esas_value, "İlgi Esas Numarası")
                 xml = replace_exact_once(xml, "12/09/2025", mahkeme_tarihi, "Mahkeme Gönderim Tarihi")
                 xml = replace_preparation_date(xml, evrak_tarihi)
+                xml = tighten_header_date_position(xml)
+                xml = normalize_justified_paragraphs(xml)
                 data = xml.encode("utf-8")
 
             zout.writestr(item, data)
