@@ -106,6 +106,21 @@ def normalize_justified_paragraphs(xml: str) -> str:
     return xml.replace('<w:jc w:val="both"/>', '<w:jc w:val="left"/>')
 
 
+def replace_court_number(xml: str, court_no: str) -> str:
+    pattern = (
+        r'(<w:t xml:space="preserve">)(\d+\.)(</w:t>\s*</w:r>\s*<w:r(?:\s[^>]*)?>\s*'
+        r'<w:rPr>.*?</w:rPr>\s*<w:t xml:space="preserve">İŞ MAHKEMESİ</w:t>)'
+    )
+    matches = re.findall(pattern, xml, flags=re.DOTALL)
+    if len(matches) != 1:
+        raise ValueError(
+            "Şablonda 'X.İŞ MAHKEMESİ' numarası için beklenen alan 1 kez bulunmalıydı, "
+            f"bulunan adet: {len(matches)}"
+        )
+    replacement = r"\g<1>" + f"{court_no}." + r"\g<3>"
+    return re.sub(pattern, replacement, xml, count=1, flags=re.DOTALL)
+
+
 def update_docx_document_xml(
     input_docx: Path,
     output_docx: Path,
@@ -114,6 +129,7 @@ def update_docx_document_xml(
     esas_no: str,
     mahkeme_tarihi: str,
     evrak_tarihi: str,
+    court_no: str,
 ) -> None:
     current_year = dt.datetime.now().year
     esas_value = f"{current_year}/{esas_no}"
@@ -133,6 +149,7 @@ def update_docx_document_xml(
                 xml = replace_exact_once(xml, "2025/258", esas_value, "İlgi Esas Numarası")
                 xml = replace_exact_once(xml, "12/09/2025", mahkeme_tarihi, "Mahkeme Gönderim Tarihi")
                 xml = replace_preparation_date(xml, evrak_tarihi)
+                xml = replace_court_number(xml, court_no)
                 xml = tighten_header_date_position(xml)
                 xml = normalize_justified_paragraphs(xml)
                 data = xml.encode("utf-8")
@@ -167,6 +184,9 @@ def main() -> int:
         "4) Mahkemenin Gönderdiği Tarih (GG/AA/YYYY): ", validate_date_ddmmyyyy
     )
     evrak_tarihi = prompt_until_valid("5) Evrakın Hazırlandığı Tarih (GG/AA/YYYY): ", validate_date_ddmmyyyy)
+    court_no = prompt_until_valid(
+        "6) Kaçıncı İş Mahkemesi?: ", lambda x: validate_nonempty_digits(x, "Kaçıncı İş Mahkemesi")
+    )
 
     output_doc = build_output_path(TEMPLATE_PATH)
 
@@ -185,6 +205,7 @@ def main() -> int:
                 esas_no=esas_no,
                 mahkeme_tarihi=mahkeme_tarihi,
                 evrak_tarihi=evrak_tarihi,
+                court_no=court_no,
             )
             run_command(["textutil", "-convert", "doc", "-output", str(output_doc), str(updated_docx)])
     except Exception as exc:
