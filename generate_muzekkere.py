@@ -126,13 +126,15 @@ def update_docx_document_xml(
     output_docx: Path,
     ad_soyad: str,
     tc: str,
-    esas_no: str,
+    sirket_esas_no: str,
+    mahkeme_esas_no: str,
     mahkeme_tarihi: str,
     evrak_tarihi: str,
     court_no: str,
 ) -> None:
     current_year = dt.datetime.now().year
-    esas_value = f"{current_year}/{esas_no}"
+    sirket_esas_value = f"{current_year}/{sirket_esas_no}"
+    mahkeme_esas_value = f"{current_year}/{mahkeme_esas_no}"
 
     with zipfile.ZipFile(input_docx, "r") as zin, zipfile.ZipFile(output_docx, "w") as zout:
         has_document_xml = False
@@ -145,8 +147,8 @@ def update_docx_document_xml(
                 xml = data.decode("utf-8")
                 xml = replace_exact_once(xml, "Doğukan yurt", ad_soyad, "Ad Soyad")
                 xml = replace_exact_once(xml, "16291090514", tc, "TC")
-                xml = replace_exact_once(xml, "2025/357", esas_value, "Mahkeme Esas Numarası")
-                xml = replace_exact_once(xml, "2025/258", esas_value, "İlgi Esas Numarası")
+                xml = replace_exact_once(xml, "2025/357", sirket_esas_value, "Kendi Şirketimin Esas Numarası")
+                xml = replace_exact_once(xml, "2025/258", mahkeme_esas_value, "Mahkeme Esas Numarası")
                 xml = replace_exact_once(xml, "12/09/2025", mahkeme_tarihi, "Mahkeme Gönderim Tarihi")
                 xml = replace_preparation_date(xml, evrak_tarihi)
                 xml = replace_court_number(xml, court_no)
@@ -176,16 +178,20 @@ def main() -> int:
 
     ad_soyad = prompt_until_valid("1) Ad Soyad: ", lambda x: len(x) > 0)
     tc = prompt_until_valid("2) TC Kimlik No: ", lambda x: validate_nonempty_digits(x, "TC Kimlik No"))
-    esas_no = prompt_until_valid(
-        "3) Mahkeme Esas Numarası (sadece sayı): ",
+    sirket_esas_no = prompt_until_valid(
+        "3) Kendi Şirketimin Esas Numarası (sadece sayı): ",
+        lambda x: validate_nonempty_digits(x, "Kendi Şirketimin Esas Numarası"),
+    )
+    mahkeme_esas_no = prompt_until_valid(
+        "4) Mahkeme Esas Numarası (sadece sayı): ",
         lambda x: validate_nonempty_digits(x, "Mahkeme Esas Numarası"),
     )
     mahkeme_tarihi = prompt_until_valid(
-        "4) Mahkemenin Gönderdiği Tarih (GG/AA/YYYY): ", validate_date_ddmmyyyy
+        "5) Mahkemenin Gönderdiği Tarih (GG/AA/YYYY): ", validate_date_ddmmyyyy
     )
-    evrak_tarihi = prompt_until_valid("5) Evrakın Hazırlandığı Tarih (GG/AA/YYYY): ", validate_date_ddmmyyyy)
+    evrak_tarihi = prompt_until_valid("6) Evrakın Hazırlandığı Tarih (GG/AA/YYYY): ", validate_date_ddmmyyyy)
     court_no = prompt_until_valid(
-        "6) Kaçıncı İş Mahkemesi?: ", lambda x: validate_nonempty_digits(x, "Kaçıncı İş Mahkemesi")
+        "7) Kaçıncı İş Mahkemesi?: ", lambda x: validate_nonempty_digits(x, "Kaçıncı İş Mahkemesi")
     )
 
     output_doc = build_output_path(TEMPLATE_PATH)
@@ -202,7 +208,8 @@ def main() -> int:
                 output_docx=updated_docx,
                 ad_soyad=ad_soyad,
                 tc=tc,
-                esas_no=esas_no,
+                sirket_esas_no=sirket_esas_no,
+                mahkeme_esas_no=mahkeme_esas_no,
                 mahkeme_tarihi=mahkeme_tarihi,
                 evrak_tarihi=evrak_tarihi,
                 court_no=court_no,
