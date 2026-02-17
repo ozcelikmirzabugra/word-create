@@ -179,6 +179,53 @@ def replace_court_number(xml: str, court_no: str) -> str:
     return re.sub(pattern, replacement, xml, count=1, flags=re.DOTALL)
 
 
+def move_park_teknik_to_top(xml: str) -> str:
+    body_pattern = r"(<w:body>)(.*?)(</w:body>)"
+    body_match = re.search(body_pattern, xml, flags=re.DOTALL)
+    if body_match is None:
+        raise ValueError("Şablonda <w:body> bloğu bulunamadı.")
+
+    body_content = body_match.group(2)
+    parts = re.split(r"(<w:p(?:\s[^>]*)?>.*?</w:p>)", body_content, flags=re.DOTALL)
+    paragraphs = parts[1::2]
+    if not paragraphs:
+        raise ValueError("Şablonda paragraf yapısı bulunamadı.")
+
+    park_marker = '<w:t xml:space="preserve">PARK TEKNİK</w:t>'
+    park_indices = [i for i, p in enumerate(paragraphs) if park_marker in p]
+    if len(park_indices) != 1:
+        raise ValueError(
+            "Şablonda 'PARK TEKNİK' paragrafı tam 1 adet olmalıydı, "
+            f"bulunan adet: {len(park_indices)}"
+        )
+
+    sayi_indices = [
+        i for i, p in enumerate(paragraphs) if '<w:t xml:space="preserve">Sayı</w:t>' in p or ">Sayı<" in p
+    ]
+    if not sayi_indices:
+        raise ValueError("Şablonda 'Sayı' paragrafı bulunamadı.")
+
+    park_idx = park_indices[0]
+    sayi_idx = sayi_indices[0]
+    if park_idx == sayi_idx:
+        return xml
+
+    park_paragraph = paragraphs.pop(park_idx)
+    insert_at = sayi_idx if park_idx > sayi_idx else max(0, sayi_idx - 1)
+    paragraphs.insert(insert_at, park_paragraph)
+
+    rebuilt_parts: list[str] = []
+    para_iter = iter(paragraphs)
+    for i, part in enumerate(parts):
+        if i % 2 == 1:
+            rebuilt_parts.append(next(para_iter))
+        else:
+            rebuilt_parts.append(part)
+
+    new_body_content = "".join(rebuilt_parts)
+    return xml[: body_match.start(2)] + new_body_content + xml[body_match.end(2) :]
+
+
 def update_docx_document_xml(
     input_docx: Path,
     output_docx: Path,
@@ -212,6 +259,7 @@ def update_docx_document_xml(
                 xml = replace_court_number(xml, court_no)
                 xml = tighten_header_date_position(xml)
                 xml = normalize_justified_paragraphs(xml)
+                xml = move_park_teknik_to_top(xml)
                 data = xml.encode("utf-8")
 
             zout.writestr(item, data)
