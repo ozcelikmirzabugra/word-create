@@ -12,6 +12,7 @@ from pathlib import Path
 
 
 TEMPLATE_PATH = Path("/Users/mirzmac/Projects/demo_dodo/tavşanlı müzekkere üstyazısı.DOC")
+PUANTAJ_TEMPLATE_PATH = Path("/Users/mirzmac/Projects/demo_dodo/tavşanlı puantaj talebine ilişkin örnek üstyazı.DOC")
 DOCX_DOCUMENT_XML = "word/document.xml"
 
 
@@ -61,22 +62,79 @@ def replace_exact_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
-def replace_preparation_date(text: str, new_date: str) -> str:
-    dotted = "20.10.2025"
-    slashed = "20/10/2025"
-    dotted_count = text.count(dotted)
-    slashed_count = text.count(slashed)
-    total = dotted_count + slashed_count
-
-    if total != 1:
+def replace_by_pattern_once(text: str, pattern: str, replacement: str, label: str) -> str:
+    matches = re.findall(pattern, text, flags=re.DOTALL)
+    if len(matches) != 1:
         raise ValueError(
-            "Şablonda evrak hazırlama tarihi için beklenen metin tam 1 kez bulunmalıydı "
-            f"(20.10.2025 veya 20/10/2025), bulunan adet: {total}"
+            f"Şablonda '{label}' için beklenen alan 1 kez bulunmalıydı, bulunan adet: {len(matches)}"
+        )
+    return re.sub(pattern, replacement, text, count=1, flags=re.DOTALL)
+
+
+def replace_header_date(xml: str, new_date: str) -> str:
+    pattern = (
+        r'(<w:t xml:space="preserve">ANKARA, </w:t>\s*</w:r>\s*<w:r(?:\s[^>]*)?>\s*'
+        r'<w:rPr>.*?</w:rPr>\s*<w:t xml:space="preserve">)([^<]+)(</w:t>)'
+    )
+    replacement = r"\g<1>" + new_date + r"\g<3>"
+    return replace_by_pattern_once(xml, pattern, replacement, "Evrak Hazırlama Tarihi")
+
+
+def replace_company_case_number(xml: str, case_value: str) -> str:
+    # Tek run formatı: PARK A 2025/357
+    single_run_pattern = r'(<w:t xml:space="preserve">\s*PARK\s+[A-ZÇĞİÖŞÜ]+\s+)(\d{4}/\d+)(</w:t>)'
+    single_matches = re.findall(single_run_pattern, xml, flags=re.DOTALL)
+    if len(single_matches) == 1:
+        replacement = r"\g<1>" + case_value + r"\g<3>"
+        return re.sub(single_run_pattern, replacement, xml, count=1, flags=re.DOTALL)
+    if len(single_matches) > 1:
+        raise ValueError("Şablonda şirket esas numarası için birden fazla aday bulundu.")
+
+    # İki run formatı: PARK A | 2025/357
+    two_run_pattern = (
+        r'(<w:t xml:space="preserve">\s*PARK\s+[A-ZÇĞİÖŞÜ]+\s*</w:t>\s*</w:r>\s*<w:r(?:\s[^>]*)?>\s*'
+        r'<w:rPr>.*?</w:rPr>\s*<w:t xml:space="preserve">)(\d{4}/\d+)(</w:t>)'
+    )
+    two_run_matches = re.findall(two_run_pattern, xml, flags=re.DOTALL)
+    if len(two_run_matches) == 1:
+        replacement = r"\g<1>" + case_value + r"\g<3>"
+        return re.sub(two_run_pattern, replacement, xml, count=1, flags=re.DOTALL)
+    if len(two_run_matches) > 1:
+        raise ValueError("Şablonda şirket esas numarası için birden fazla aday bulundu.")
+
+    # Parçalı format: PARK H 2026/ | 23
+    split_run_pattern = (
+        r'(<w:t xml:space="preserve">\s*PARK\s+[A-ZÇĞİÖŞÜ]+\s+)(\d{4}/)(</w:t>\s*</w:r>\s*<w:r(?:\s[^>]*)?>\s*'
+        r'<w:rPr>.*?</w:rPr>\s*<w:t xml:space="preserve">)(\d+)(</w:t>)'
+    )
+    split_matches = re.findall(split_run_pattern, xml, flags=re.DOTALL)
+    if len(split_matches) != 1:
+        raise ValueError(
+            "Şablonda şirket esas numarası için beklenen alan 1 kez bulunmalıydı, "
+            f"bulunan adet: {len(split_matches)}"
         )
 
-    if dotted_count == 1:
-        return text.replace(dotted, new_date, 1)
-    return text.replace(slashed, new_date, 1)
+    year_part, no_part = case_value.split("/", 1)
+    replacement = r"\g<1>" + f"{year_part}/" + r"\g<3>" + no_part + r"\g<5>"
+    return re.sub(split_run_pattern, replacement, xml, count=1, flags=re.DOTALL)
+
+
+def replace_ilgi_date(xml: str, new_date: str) -> str:
+    pattern = (
+        r'(<w:p[^>]*>.*?<w:t xml:space="preserve">İlgi</w:t>.*?)(\d{2}/\d{2}/\d{4})'
+        r'(.*?Esas sayılı yazınız.*?</w:p>)'
+    )
+    replacement = r"\g<1>" + new_date + r"\g<3>"
+    return replace_by_pattern_once(xml, pattern, replacement, "Mahkeme Gönderim Tarihi")
+
+
+def replace_court_case_number(xml: str, case_value: str) -> str:
+    pattern = (
+        r'(<w:t xml:space="preserve">\s*tarihli ve\s*</w:t>\s*</w:r>\s*<w:r(?:\s[^>]*)?>\s*'
+        r'<w:rPr>.*?</w:rPr>\s*<w:t xml:space="preserve">)(\d{4}/\d+)(</w:t>)'
+    )
+    replacement = r"\g<1>" + case_value + r"\g<3>"
+    return replace_by_pattern_once(xml, pattern, replacement, "Mahkeme Esas Numarası")
 
 
 def tighten_header_date_position(xml: str) -> str:
@@ -109,7 +167,7 @@ def normalize_justified_paragraphs(xml: str) -> str:
 def replace_court_number(xml: str, court_no: str) -> str:
     pattern = (
         r'(<w:t xml:space="preserve">)(\d+\.)(</w:t>\s*</w:r>\s*<w:r(?:\s[^>]*)?>\s*'
-        r'<w:rPr>.*?</w:rPr>\s*<w:t xml:space="preserve">İŞ MAHKEMESİ</w:t>)'
+        r'<w:rPr>.*?</w:rPr>\s*<w:t xml:space="preserve">\s*İŞ MAHKEMESİ\s*</w:t>)'
     )
     matches = re.findall(pattern, xml, flags=re.DOTALL)
     if len(matches) != 1:
@@ -147,10 +205,10 @@ def update_docx_document_xml(
                 xml = data.decode("utf-8")
                 xml = replace_exact_once(xml, "Doğukan yurt", ad_soyad, "Ad Soyad")
                 xml = replace_exact_once(xml, "16291090514", tc, "TC")
-                xml = replace_exact_once(xml, "2025/357", sirket_esas_value, "Kendi Şirketimin Esas Numarası")
-                xml = replace_exact_once(xml, "2025/258", mahkeme_esas_value, "Mahkeme Esas Numarası")
-                xml = replace_exact_once(xml, "12/09/2025", mahkeme_tarihi, "Mahkeme Gönderim Tarihi")
-                xml = replace_preparation_date(xml, evrak_tarihi)
+                xml = replace_company_case_number(xml, sirket_esas_value)
+                xml = replace_court_case_number(xml, mahkeme_esas_value)
+                xml = replace_ilgi_date(xml, mahkeme_tarihi)
+                xml = replace_header_date(xml, evrak_tarihi)
                 xml = replace_court_number(xml, court_no)
                 xml = tighten_header_date_position(xml)
                 xml = normalize_justified_paragraphs(xml)
@@ -162,9 +220,51 @@ def update_docx_document_xml(
         raise RuntimeError("DOCX içinde word/document.xml bulunamadı.")
 
 
-def build_output_path(base_doc_path: Path) -> Path:
-    timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+def build_output_path(base_doc_path: Path, timestamp: str) -> Path:
     return base_doc_path.with_name(f"{base_doc_path.stem}_filled_{timestamp}.DOC")
+
+
+def validate_yes_no(value: str) -> bool:
+    accepted = {"e", "evet", "h", "hayir", "hayır", "yes", "no", "y", "n"}
+    if value.strip().lower() in accepted:
+        return True
+    print("Hata: Lütfen 'evet/e' ya da 'hayır/h' giriniz.")
+    return False
+
+
+def is_yes(value: str) -> bool:
+    return value.strip().lower() in {"e", "evet", "yes", "y"}
+
+
+def process_template(
+    template_path: Path,
+    output_doc: Path,
+    ad_soyad: str,
+    tc: str,
+    sirket_esas_no: str,
+    mahkeme_esas_no: str,
+    mahkeme_tarihi: str,
+    evrak_tarihi: str,
+    court_no: str,
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="muzekkere_") as tmp:
+        tmpdir = Path(tmp)
+        converted_docx = tmpdir / "template.docx"
+        updated_docx = tmpdir / "updated.docx"
+
+        run_command(["textutil", "-convert", "docx", "-output", str(converted_docx), str(template_path)])
+        update_docx_document_xml(
+            input_docx=converted_docx,
+            output_docx=updated_docx,
+            ad_soyad=ad_soyad,
+            tc=tc,
+            sirket_esas_no=sirket_esas_no,
+            mahkeme_esas_no=mahkeme_esas_no,
+            mahkeme_tarihi=mahkeme_tarihi,
+            evrak_tarihi=evrak_tarihi,
+            court_no=court_no,
+        )
+        run_command(["textutil", "-convert", "doc", "-output", str(output_doc), str(updated_docx)])
 
 
 def main() -> int:
@@ -174,6 +274,9 @@ def main() -> int:
 
     if not TEMPLATE_PATH.exists():
         print(f"Hata: Şablon dosya bulunamadı: {TEMPLATE_PATH}")
+        return 1
+    if not PUANTAJ_TEMPLATE_PATH.exists():
+        print(f"Hata: Şablon dosya bulunamadı: {PUANTAJ_TEMPLATE_PATH}")
         return 1
 
     ad_soyad = prompt_until_valid("1) Ad Soyad: ", lambda x: len(x) > 0)
@@ -193,19 +296,33 @@ def main() -> int:
     court_no = prompt_until_valid(
         "7) Kaçıncı İş Mahkemesi?: ", lambda x: validate_nonempty_digits(x, "Kaçıncı İş Mahkemesi")
     )
+    produce_puantaj = prompt_until_valid(
+        "8) Puantaj belgesi de aynı bilgilerle oluşturulsun mu? (evet/hayır): ",
+        validate_yes_no,
+    )
 
-    output_doc = build_output_path(TEMPLATE_PATH)
+    timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_doc = build_output_path(TEMPLATE_PATH, timestamp)
 
     try:
-        with tempfile.TemporaryDirectory(prefix="muzekkere_") as tmp:
-            tmpdir = Path(tmp)
-            converted_docx = tmpdir / "template.docx"
-            updated_docx = tmpdir / "updated.docx"
+        process_template(
+            template_path=TEMPLATE_PATH,
+            output_doc=output_doc,
+            ad_soyad=ad_soyad,
+            tc=tc,
+            sirket_esas_no=sirket_esas_no,
+            mahkeme_esas_no=mahkeme_esas_no,
+            mahkeme_tarihi=mahkeme_tarihi,
+            evrak_tarihi=evrak_tarihi,
+            court_no=court_no,
+        )
 
-            run_command(["textutil", "-convert", "docx", "-output", str(converted_docx), str(TEMPLATE_PATH)])
-            update_docx_document_xml(
-                input_docx=converted_docx,
-                output_docx=updated_docx,
+        output_paths = [output_doc]
+        if is_yes(produce_puantaj):
+            puantaj_output = build_output_path(PUANTAJ_TEMPLATE_PATH, timestamp)
+            process_template(
+                template_path=PUANTAJ_TEMPLATE_PATH,
+                output_doc=puantaj_output,
                 ad_soyad=ad_soyad,
                 tc=tc,
                 sirket_esas_no=sirket_esas_no,
@@ -214,12 +331,14 @@ def main() -> int:
                 evrak_tarihi=evrak_tarihi,
                 court_no=court_no,
             )
-            run_command(["textutil", "-convert", "doc", "-output", str(output_doc), str(updated_docx)])
+            output_paths.append(puantaj_output)
     except Exception as exc:
         print(f"Hata: {exc}")
         return 1
 
-    print(f"Başarılı: Yeni dosya oluşturuldu -> {output_doc}")
+    print("Başarılı: Yeni dosya(lar) oluşturuldu:")
+    for path in output_paths:
+        print(f"- {path}")
     return 0
 
 
