@@ -220,10 +220,6 @@ def update_docx_document_xml(
         raise RuntimeError("DOCX içinde word/document.xml bulunamadı.")
 
 
-def build_output_path(base_doc_path: Path, timestamp: str) -> Path:
-    return base_doc_path.with_name(f"{base_doc_path.stem}_filled_{timestamp}.DOC")
-
-
 def validate_yes_no(value: str) -> bool:
     accepted = {"e", "evet", "h", "hayir", "hayır", "yes", "no", "y", "n"}
     if value.strip().lower() in accepted:
@@ -267,6 +263,41 @@ def process_template(
         run_command(["textutil", "-convert", "doc", "-output", str(output_doc), str(updated_docx)])
 
 
+def sanitize_filename_component(value: str) -> str:
+    cleaned = value.strip().lower()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = cleaned.replace("/", "-")
+    cleaned = re.sub(r'[<>:"\\|?*\x00-\x1F]', "", cleaned)
+    return cleaned.strip(" .")
+
+
+def ensure_unique_output_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    i = 2
+    while True:
+        candidate = parent / f"{stem} ({i}){suffix}"
+        if not candidate.exists():
+            return candidate
+        i += 1
+
+
+def build_output_base_name(court_no: str, mahkeme_esas_no: str, ad_soyad: str) -> str:
+    year = dt.datetime.now().year
+    safe_name = sanitize_filename_component(ad_soyad) or "isimsiz"
+    # Dosya adında "/" kullanılamadığı için esas no bölümünde "-" kullanıyoruz.
+    return f"{court_no}. İş {year}-{mahkeme_esas_no} {safe_name}"
+
+
+def build_output_path(base_doc_path: Path, base_name: str, kind_suffix: str = "") -> Path:
+    file_name = base_name if not kind_suffix else f"{base_name} {kind_suffix}"
+    raw_path = base_doc_path.with_name(f"{file_name}.DOC")
+    return ensure_unique_output_path(raw_path)
+
+
 def main() -> int:
     if shutil.which("textutil") is None:
         print("Hata: 'textutil' komutu bulunamadı. Bu script macOS üzerinde çalışmak üzere tasarlandı.")
@@ -301,8 +332,8 @@ def main() -> int:
         validate_yes_no,
     )
 
-    timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_doc = build_output_path(TEMPLATE_PATH, timestamp)
+    base_name = build_output_base_name(court_no, mahkeme_esas_no, ad_soyad)
+    output_doc = build_output_path(TEMPLATE_PATH, base_name)
 
     try:
         process_template(
@@ -319,7 +350,7 @@ def main() -> int:
 
         output_paths = [output_doc]
         if is_yes(produce_puantaj):
-            puantaj_output = build_output_path(PUANTAJ_TEMPLATE_PATH, timestamp)
+            puantaj_output = build_output_path(PUANTAJ_TEMPLATE_PATH, base_name, "puantaj")
             process_template(
                 template_path=PUANTAJ_TEMPLATE_PATH,
                 output_doc=puantaj_output,
